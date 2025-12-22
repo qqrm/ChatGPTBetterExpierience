@@ -1,6 +1,6 @@
 {
     "summary": {
-        "en-US": "Auto-send ChatGPT voice dictation after transcription. Supports a configurable modifier key to skip auto-send, or to send only while holding the key."
+        "en-US": "Auto-sends ChatGPT dictation transcripts when you accept them. Supports a configurable modifier key to skip auto-send, or to send only while holding the key."
     },
     "categories": [
         "other"
