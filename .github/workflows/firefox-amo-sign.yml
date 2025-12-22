@@ -1,0 +1,41 @@
+name: firefox-amo-sign
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  sign-and-submit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install web-ext
+        run: npm i -g web-ext
+
+      - name: Lint (optional)
+        run: web-ext lint --source-dir .
+
+      - name: Build
+        run: web-ext build --source-dir . --artifacts-dir dist --overwrite-dest
+
+      - name: Sign and submit to AMO (listed)
+        env:
+          AMO_API_KEY: ${{ secrets.JWT_ISSUER }}
+          AMO_API_SECRET: ${{ secrets.JWT_SECRET }}
+        run: web-ext sign --source-dir . --artifacts-dir dist --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --timeout 900000
+
+      - name: Upload signed XPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-xpi
+          path: dist/*.xpi
+          if-no-files-found: error

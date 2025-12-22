@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Dictation Auto-Send",
-  "version": "1.2.1",
+  "version": "1.0.0",
   "description": "Auto-sends ChatGPT dictation transcripts when you accept them. Hold a configurable modifier key (Shift by default) while clicking the dictation checkmark to skip auto-send.",
   "permissions": [
     "storage"
@@ -38,5 +38,6 @@
     "gecko": {
       "id": "chatgpt-dictation-autosend@qqrm-tools"
     }
-  }
+  },
+  "homepage_url": "https://github.com/qqrm/ChatGPT-Dictation-Auto-Send"
 }
