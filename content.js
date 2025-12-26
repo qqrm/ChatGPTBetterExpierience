@@ -44,6 +44,14 @@
     return false;
   }
 
+  function isModifierHeldNow(key) {
+    if (!key || key === "None") return false;
+    if (key === "Shift") return keyState.shift;
+    if (key === "Control") return keyState.ctrl;
+    if (key === "Alt") return keyState.alt;
+    return false;
+  }
+
   // Storage helpers: sync -> local fallback, callback-first (Firefox friendly)
   function getStorageArea(preferSync) {
     const api = typeof browser !== "undefined" ? browser : chrome;
@@ -308,20 +316,18 @@
 
       refreshSettings();
 
-      const held = isModifierHeld(ev, skipKey);
-      const shouldSend = holdToSend ? held : !held;
-
-      if (!shouldSend) {
-        log("accept click: skip auto send", { held, holdToSend, skipKey });
-        return;
-      }
-
       sending = true;
       const snapshot = snapshotAtRecordStart;
       log("accept click; snapshot length", snapshot.length);
 
       setTimeout(async () => {
+        let modifierHeldDuring = isModifierHeld(ev, skipKey);
+        const modifierTracker = setInterval(() => {
+          if (isModifierHeldNow(skipKey)) modifierHeldDuring = true;
+        }, 80);
+
         const res = await waitForFinalText(snapshot, 25000, 320);
+        clearInterval(modifierTracker);
         if (!res.ok) {
           log("timeout waiting for transcription");
           sending = false;
@@ -329,6 +335,18 @@
         }
 
         await new Promise((r) => setTimeout(r, 120));
+
+        if (isModifierHeldNow(skipKey)) modifierHeldDuring = true;
+        const shouldSend = holdToSend ? modifierHeldDuring : !modifierHeldDuring;
+        if (!shouldSend) {
+          log("accept click: skip auto send", {
+            heldDuring: modifierHeldDuring,
+            holdToSend,
+            skipKey
+          });
+          sending = false;
+          return;
+        }
 
         // If ChatGPT is generating, the action button is Stop.
         // Behavior: stop generation first, then wait for Send and send the new prompt.
