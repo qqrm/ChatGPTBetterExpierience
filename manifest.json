@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Dictation Auto-Send",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Auto-sends ChatGPT dictation transcripts when you accept them. Hold a configurable modifier key (Shift by default) while clicking the dictation checkmark to skip auto-send.",
   "permissions": [
     "storage"
