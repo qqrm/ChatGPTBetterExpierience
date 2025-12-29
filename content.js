@@ -250,6 +250,14 @@
     return keyState.shift;
   }
 
+  function isModifierHeldFromEvent(e) {
+    if (!CFG.modifierKey || CFG.modifierKey === "None") return false;
+    if (!e) return false;
+    if (CFG.modifierKey === "Control") return !!e.ctrlKey;
+    if (CFG.modifierKey === "Alt") return !!e.altKey;
+    return !!e.shiftKey;
+  }
+
   const keyState = { shift: false, ctrl: false, alt: false };
 
   function updateKeyState(e, state) {
@@ -419,7 +427,7 @@
 
   let inFlight = false;
 
-  async function runFlowAfterSubmitClick(submitBtnDesc) {
+  async function runFlowAfterSubmitClick(submitBtnDesc, clickHeld) {
     if (inFlight) {
       tmLog("FLOW", "skip: inFlight already true");
       return;
@@ -449,7 +457,7 @@
         quietMs: CFG.finalTextQuietMs
       });
 
-      const heldDuring = initialHeld || graceCaptured || isModifierHeldNow();
+      const heldDuring = initialHeld || graceCaptured || isModifierHeldNow() || clickHeld;
 
       const shouldSend = CFG.holdToSend ? heldDuring : !heldDuring;
 
@@ -582,7 +590,7 @@
 
       if (CFG.enabled && isSubmitDictationButton(btn)) {
         refreshSettings();
-        runFlowAfterSubmitClick(btnDesc);
+        runFlowAfterSubmitClick(btnDesc, isModifierHeldFromEvent(e));
       }
     },
     true
