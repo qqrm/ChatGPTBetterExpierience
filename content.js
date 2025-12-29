@@ -17,6 +17,7 @@
     modifierGraceMs: 1600,
 
     autoExpandChatsEnabled: true,
+    autoTempChatEnabled: false,
 
     finalTextTimeoutMs: 25000,
     finalTextQuietMs: 320,
@@ -272,6 +273,7 @@
   }
 
   const keyState = { shift: false, ctrl: false, alt: false };
+  let tempChatEnabled = false;
 
   function updateKeyState(e, state) {
     if (e.key === "Shift") keyState.shift = state;
@@ -566,18 +568,61 @@
     done(defaults);
   }
 
+  function storageSet(values, cb) {
+    const areaSync = getStorageArea(true);
+    const areaLocal = getStorageArea(false);
+    const done = () => {
+      if (typeof cb === "function") cb();
+    };
+
+    if (areaSync && typeof areaSync.set === "function") {
+      try {
+        areaSync.set(values, () => {
+          const err = chrome && chrome.runtime ? chrome.runtime.lastError : null;
+          if (!err) return done();
+          if (!areaLocal || typeof areaLocal.set !== "function") return done();
+          try {
+            areaLocal.set(values, () => done());
+          } catch (_) {
+            done();
+          }
+        });
+        return;
+      } catch (_) {
+      }
+    }
+
+    if (areaLocal && typeof areaLocal.set === "function") {
+      try {
+        areaLocal.set(values, () => done());
+        return;
+      } catch (_) {
+      }
+    }
+
+    done();
+  }
+
   function refreshSettings() {
-    storageGet({ skipKey: "Shift", holdToSend: false, autoExpandChats: true }, (res) => {
+    storageGet(
+      { skipKey: "Shift", holdToSend: false, autoExpandChats: true, autoTempChat: false, tempChatEnabled: false },
+      (res) => {
       if (res && typeof res.skipKey === "string") CFG.modifierKey = res.skipKey;
       if (CFG.modifierKey === "None") CFG.modifierKey = null;
       CFG.holdToSend = !!(res && res.holdToSend);
       CFG.autoExpandChatsEnabled = res && "autoExpandChats" in res ? !!res.autoExpandChats : true;
+      CFG.autoTempChatEnabled = res && "autoTempChat" in res ? !!res.autoTempChat : false;
+      tempChatEnabled = res && "tempChatEnabled" in res ? !!res.tempChatEnabled : false;
       log("settings refreshed", {
         skipKey: CFG.modifierKey,
         holdToSend: CFG.holdToSend,
-        autoExpandChats: CFG.autoExpandChatsEnabled
+        autoExpandChats: CFG.autoExpandChatsEnabled,
+        autoTempChat: CFG.autoTempChatEnabled,
+        tempChatEnabled
       });
-    });
+      maybeEnableTempChat();
+    }
+    );
   }
 
   let graceUntilMs = 0;
@@ -589,9 +634,100 @@
   if (storageApi && storageApi.onChanged && typeof storageApi.onChanged.addListener === "function") {
     storageApi.onChanged.addListener((changes, areaName) => {
       if (areaName !== "sync" && areaName !== "local") return;
-      if (!changes || !("autoExpandChats" in changes) && !("skipKey" in changes) && !("holdToSend" in changes)) return;
+      if (
+        !changes ||
+        (!("autoExpandChats" in changes) &&
+          !("skipKey" in changes) &&
+          !("holdToSend" in changes) &&
+          !("autoTempChat" in changes) &&
+          !("tempChatEnabled" in changes))
+      ) {
+        return;
+      }
       refreshSettings();
     });
+  }
+
+  const TEMP_CHAT_ON_SELECTOR = 'button[aria-label="Turn on temporary chat"]';
+  const TEMP_CHAT_OFF_SELECTOR = 'button[aria-label="Turn off temporary chat"]';
+  const TEMP_CHAT_MAX_RETRIES = 5;
+  const TEMP_CHAT_RETRY_MS = 300;
+  const tempChatState = {
+    retries: 0,
+    started: false,
+    observer: null,
+    urlIntervalId: null,
+    lastPath: ""
+  };
+
+  function isTempChatActive() {
+    return !!qs(TEMP_CHAT_OFF_SELECTOR);
+  }
+
+  function findVisibleBySelector(sel) {
+    return qsa(sel).find((el) => isElementVisible(el) && !el.disabled);
+  }
+
+  function persistTempChatEnabled(value) {
+    tempChatEnabled = value;
+    storageSet({ tempChatEnabled });
+    tmLog("TEMPCHAT", "persist state", { ok: value });
+  }
+
+  function maybeEnableTempChat() {
+    if (!CFG.autoTempChatEnabled || !tempChatEnabled || isTempChatActive()) {
+      tempChatState.retries = 0;
+      return;
+    }
+
+    const btn = findVisibleBySelector(TEMP_CHAT_ON_SELECTOR);
+    if (!btn) return;
+
+    humanClick(btn, "tempchat-enable");
+    tmLog("TEMPCHAT", "auto-clicked on");
+
+    setTimeout(() => {
+      if (isTempChatActive()) {
+        tmLog("TEMPCHAT", "enabled");
+        tempChatState.retries = 0;
+      } else if (++tempChatState.retries <= TEMP_CHAT_MAX_RETRIES) {
+        tmLog("TEMPCHAT", `retry ${tempChatState.retries}`);
+        maybeEnableTempChat();
+      } else {
+        tmLog("TEMPCHAT", "failed after retries");
+        tempChatState.retries = 0;
+      }
+    }, TEMP_CHAT_RETRY_MS);
+  }
+
+  function handleTempChatManualToggle(e) {
+    if (!e.isTrusted) return;
+    const target = e.target;
+    if (!target || !target.closest) return;
+    if (target.closest(TEMP_CHAT_ON_SELECTOR)) return persistTempChatEnabled(true);
+    if (target.closest(TEMP_CHAT_OFF_SELECTOR)) return persistTempChatEnabled(false);
+  }
+
+  function startAutoTempChat() {
+    if (tempChatState.started) return;
+    tempChatState.started = true;
+    tempChatState.lastPath = location.pathname + location.search;
+
+    document.addEventListener("click", handleTempChatManualToggle, true);
+
+    tempChatState.observer = new MutationObserver(() => maybeEnableTempChat());
+    tempChatState.observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    tempChatState.urlIntervalId = setInterval(() => {
+      const cur = location.pathname + location.search;
+      if (cur !== tempChatState.lastPath) {
+        tempChatState.lastPath = cur;
+        tempChatState.retries = 0;
+        maybeEnableTempChat();
+      }
+    }, 100);
+
+    maybeEnableTempChat();
   }
 
   const AUTO_EXPAND_LOOP_MS = 400;
@@ -730,9 +866,17 @@
   }
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", startAutoExpand, { once: true });
+    document.addEventListener(
+      "DOMContentLoaded",
+      () => {
+        startAutoExpand();
+        startAutoTempChat();
+      },
+      { once: true }
+    );
   } else {
     startAutoExpand();
+    startAutoTempChat();
   }
 
   document.addEventListener(

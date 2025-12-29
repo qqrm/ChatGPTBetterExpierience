@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Dictation Auto-Send",
-  "version": "1.0.5",
-  "description": "Auto-sends ChatGPT dictation transcripts when you accept them. Hold a configurable modifier key (Shift by default) while clicking the dictation checkmark to skip auto-send.",
+  "name": "chat-gpt-better-experience",
+  "version": "1.0.6",
+  "description": "Auto-sends ChatGPT dictation transcripts, with optional Temporary Chat auto-enable and chat list auto-expand. Hold a configurable modifier key (Shift by default) while clicking the dictation checkmark to skip auto-send.",
   "permissions": [
     "storage"
   ],
@@ -23,7 +23,7 @@
     }
   ],
   "action": {
-    "default_title": "Dictation Auto-Send",
+    "default_title": "chat-gpt-better-experience",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
