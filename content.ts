@@ -1,25 +1,6 @@
-import { SETTINGS_DEFAULTS, Settings, SettingsRecord } from "./settings";
-
-type StorageAreaLike = {
-  get: (
-    keys: SettingsRecord,
-    cb: (res: Record<string, unknown>) => void
-  ) => void | Promise<Record<string, unknown>>;
-  set: (values: Record<string, unknown>, cb: () => void) => void | Promise<void>;
-};
-
-type StorageApi = {
-  sync?: StorageAreaLike;
-  local?: StorageAreaLike;
-  onChanged?: {
-    addListener: (
-      cb: (
-        changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
-        areaName: string
-      ) => void
-    ) => void;
-  };
-};
+import { SETTINGS_DEFAULTS } from "./settings";
+import { StorageApi, storageGet, storageSet } from "./src/lib/storage";
+import { isElementVisible, isVisible, norm, normalizeSettings } from "./src/lib/utils";
 
 declare const chrome: {
   runtime?: { lastError?: unknown };
@@ -142,27 +123,6 @@ declare global {
 
   function qsa<T extends Element = Element>(sel: string, root: Document | Element = document) {
     return Array.from(root.querySelectorAll<T>(sel));
-  }
-
-  function norm(s: string | null) {
-    return String(s || "").toLowerCase();
-  }
-
-  function isVisible(el: Element | null) {
-    if (!el) return false;
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
-  }
-
-  function isElementVisible(el: Element | null) {
-    if (!el || el.nodeType !== 1) return false;
-    const r = el.getBoundingClientRect();
-    if (r.width <= 1 || r.height <= 1) return false;
-    const cs = getComputedStyle(el);
-    if (cs.display === "none") return false;
-    if (cs.visibility === "hidden") return false;
-    if (cs.opacity === "0") return false;
-    return true;
   }
 
   function describeEl(el: Element | null) {
@@ -656,153 +616,29 @@ declare global {
     return false;
   }
 
-  function getStorageArea(preferSync: boolean) {
-    const api = (typeof browser !== "undefined" ? browser : chrome) as
-      | { storage?: StorageApi }
-      | undefined;
-    const storage = api && api.storage ? api.storage : null;
-    if (!storage) return null;
-    if (preferSync && storage.sync) return storage.sync;
-    if (storage.local) return storage.local;
-    return null;
-  }
+  const storageApi = (
+    (typeof browser !== "undefined" ? browser : chrome) as { storage?: StorageApi } | undefined
+  )?.storage;
 
-  function isThenable<T>(value: void | Promise<T>): value is Promise<T> {
-    return Boolean(value) && typeof (value as Promise<T>).then === "function";
-  }
+  const lastError = () => chrome?.runtime?.lastError ?? null;
 
-  function storageGet<T extends SettingsRecord>(defaults: T, cb: (res: T) => void) {
-    const areaSync = getStorageArea(true);
-    const areaLocal = getStorageArea(false);
-    const done = (res?: Record<string, unknown>) => cb({ ...defaults, ...(res || {}) } as T);
-
-    if (areaSync && typeof areaSync.get === "function") {
-      try {
-        const result = areaSync.get(defaults, (res) => {
-          const err = chrome?.runtime?.lastError ?? null;
-          if (!err) return done(res);
-          if (!areaLocal) return done(defaults);
-          try {
-            const fallbackResult = areaLocal.get(defaults, (res2) => done(res2));
-            if (isThenable(fallbackResult)) {
-              void fallbackResult.then(
-                (res2) => done(res2),
-                () => done(defaults)
-              );
-            }
-          } catch (_) {
-            done(defaults);
-          }
-        });
-        if (isThenable(result)) {
-          void result.then(
-            (res) => done(res),
-            () => done(defaults)
-          );
-        }
-        return;
-      } catch (_) {}
-    }
-
-    if (areaLocal && typeof areaLocal.get === "function") {
-      try {
-        const result = areaLocal.get(defaults, (res) => done(res));
-        if (isThenable(result)) {
-          void result.then(
-            (res) => done(res),
-            () => done(defaults)
-          );
-        }
-        return;
-      } catch (_) {}
-    }
-
-    done(defaults);
-  }
-
-  function storageSet(values: Record<string, unknown>, cb?: () => void) {
-    const areaSync = getStorageArea(true);
-    const areaLocal = getStorageArea(false);
-    const done = () => {
-      if (typeof cb === "function") cb();
-    };
-
-    if (areaSync && typeof areaSync.set === "function") {
-      try {
-        const result = areaSync.set(values, () => {
-          const err = chrome?.runtime?.lastError ?? null;
-          if (!err) return done();
-          if (!areaLocal || typeof areaLocal.set !== "function") return done();
-          try {
-            const fallbackResult = areaLocal.set(values, () => done());
-            if (isThenable(fallbackResult)) {
-              void fallbackResult.then(
-                () => done(),
-                () => done()
-              );
-            }
-          } catch (_) {
-            done();
-          }
-        });
-        if (isThenable(result)) {
-          void result.then(
-            () => done(),
-            () => done()
-          );
-        }
-        return;
-      } catch (_) {}
-    }
-
-    if (areaLocal && typeof areaLocal.set === "function") {
-      try {
-        const result = areaLocal.set(values, () => done());
-        if (isThenable(result)) {
-          void result.then(
-            () => done(),
-            () => done()
-          );
-        }
-        return;
-      } catch (_) {}
-    }
-
-    done();
-  }
-
-  function normalizeSettings(value: Record<string, unknown> | null | undefined): Settings {
-    const base = SETTINGS_DEFAULTS;
-    const data = value ?? {};
-    return {
-      skipKey: typeof data.skipKey === "string" ? data.skipKey : base.skipKey,
-      holdToSend: typeof data.holdToSend === "boolean" ? data.holdToSend : base.holdToSend,
-      autoExpandChats:
-        typeof data.autoExpandChats === "boolean" ? data.autoExpandChats : base.autoExpandChats,
-      autoTempChat: typeof data.autoTempChat === "boolean" ? data.autoTempChat : base.autoTempChat,
-      tempChatEnabled:
-        typeof data.tempChatEnabled === "boolean" ? data.tempChatEnabled : base.tempChatEnabled
-    };
-  }
-
-  function refreshSettings() {
-    storageGet(SETTINGS_DEFAULTS, (res) => {
-      const settings = normalizeSettings(res);
-      CFG.modifierKey = settings.skipKey;
-      if (CFG.modifierKey === "None") CFG.modifierKey = null;
-      CFG.holdToSend = settings.holdToSend;
-      CFG.autoExpandChatsEnabled = settings.autoExpandChats;
-      CFG.autoTempChatEnabled = settings.autoTempChat;
-      tempChatEnabled = settings.tempChatEnabled;
-      log("settings refreshed", {
-        skipKey: CFG.modifierKey,
-        holdToSend: CFG.holdToSend,
-        autoExpandChats: CFG.autoExpandChatsEnabled,
-        autoTempChat: CFG.autoTempChatEnabled,
-        tempChatEnabled
-      });
-      maybeEnableTempChat();
+  async function refreshSettings() {
+    const res = await storageGet(SETTINGS_DEFAULTS, storageApi, lastError);
+    const settings = normalizeSettings(res);
+    CFG.modifierKey = settings.skipKey;
+    if (CFG.modifierKey === "None") CFG.modifierKey = null;
+    CFG.holdToSend = settings.holdToSend;
+    CFG.autoExpandChatsEnabled = settings.autoExpandChats;
+    CFG.autoTempChatEnabled = settings.autoTempChat;
+    tempChatEnabled = settings.tempChatEnabled;
+    log("settings refreshed", {
+      skipKey: CFG.modifierKey,
+      holdToSend: CFG.holdToSend,
+      autoExpandChats: CFG.autoExpandChatsEnabled,
+      autoTempChat: CFG.autoTempChatEnabled,
+      tempChatEnabled
     });
+    maybeEnableTempChat();
   }
 
   let graceUntilMs = 0;
@@ -839,7 +675,7 @@ declare global {
 
   function persistTempChatEnabled(value: boolean) {
     tempChatEnabled = value;
-    storageSet({ tempChatEnabled });
+    void storageSet({ tempChatEnabled }, storageApi, lastError);
     tmLog("TEMPCHAT", "persist state", { ok: value });
   }
 
@@ -899,11 +735,7 @@ declare global {
     maybeEnableTempChat();
   }
 
-  refreshSettings();
-
-  const storageApi = (
-    (typeof browser !== "undefined" ? browser : chrome) as { storage?: StorageApi } | undefined
-  )?.storage;
+  void refreshSettings();
   if (
     storageApi &&
     storageApi.onChanged &&
@@ -922,7 +754,7 @@ declare global {
         ) {
           return;
         }
-        refreshSettings();
+        void refreshSettings();
       }
     );
   }
@@ -1120,7 +952,7 @@ declare global {
       }
 
       if (CFG.enabled && btn instanceof HTMLButtonElement && isSubmitDictationButton(btn)) {
-        refreshSettings();
+        void refreshSettings();
         void runFlowAfterSubmitClick(btnDesc, isModifierHeldFromEvent(e));
       }
     },
