@@ -1,4 +1,6 @@
-import { SETTINGS_DEFAULTS, Settings, SettingsRecord } from "./settings";
+import { SETTINGS_DEFAULTS } from "./settings";
+import { StorageApi, storageGet, storageSet } from "./src/lib/storage";
+import { normalizeSettings } from "./src/lib/utils";
 
 declare const chrome: {
   runtime?: { lastError?: unknown };
@@ -8,27 +10,6 @@ declare const chrome: {
 declare const browser: {
   storage?: StorageApi;
 };
-
-type StorageAreaLike = {
-  get: (
-    keys: SettingsRecord,
-    cb: (res: Record<string, unknown>) => void
-  ) => void | Promise<Record<string, unknown>>;
-  set: (values: Record<string, unknown>, cb: () => void) => void | Promise<void>;
-};
-
-type StorageApi = {
-  sync?: StorageAreaLike;
-  local?: StorageAreaLike;
-};
-
-function toError(err: unknown, fallback: string) {
-  return err instanceof Error ? err : new Error(fallback);
-}
-
-function isThenable<T>(value: void | Promise<T>): value is Promise<T> {
-  return Boolean(value) && typeof (value as Promise<T>).then === "function";
-}
 
 function mustGetElement<T extends HTMLElement>(id: string) {
   const el = document.getElementById(id);
@@ -55,90 +36,14 @@ function setHint(skipKey: string, holdToSend: boolean) {
     : `Hold ${skipKey} while accepting dictation to skip auto-send.`;
 }
 
-function getStorageArea(preferSync = true) {
-  const api = (typeof browser !== "undefined" ? browser : chrome) as
-    | { storage?: StorageApi }
-    | undefined;
-  const storage = api && api.storage ? api.storage : null;
-  if (!storage) return null;
-  if (preferSync && storage.sync) return storage.sync;
-  if (storage.local) return storage.local;
-  return null;
-}
+const storageApi = (
+  (typeof browser !== "undefined" ? browser : chrome) as { storage?: StorageApi } | undefined
+)?.storage;
 
-async function storageGet(keys: SettingsRecord) {
-  const areaSync = getStorageArea(true);
-  const areaLocal = getStorageArea(false);
-
-  const tryGet = (area: StorageAreaLike) =>
-    new Promise<Record<string, unknown>>((resolve, reject) => {
-      try {
-        const r = area.get(keys, (res) => {
-          const err = chrome?.runtime?.lastError ?? null;
-          if (err) reject(toError(err, "Storage get failed"));
-          else resolve(res);
-        });
-        if (isThenable(r)) r.then(resolve, reject);
-      } catch (e) {
-        reject(toError(e, "Storage get failed"));
-      }
-    });
-
-  try {
-    if (areaSync) return await tryGet(areaSync);
-  } catch {}
-
-  if (areaLocal) return await tryGet(areaLocal);
-  return {};
-}
-
-async function storageSet(obj: Record<string, unknown>) {
-  const areaSync = getStorageArea(true);
-  const areaLocal = getStorageArea(false);
-
-  const trySet = (area: StorageAreaLike) =>
-    new Promise<void>((resolve, reject) => {
-      try {
-        const r = area.set(obj, () => {
-          const err = chrome?.runtime?.lastError ?? null;
-          if (err) reject(toError(err, "Storage set failed"));
-          else resolve();
-        });
-        if (isThenable(r)) r.then(() => resolve(), reject);
-      } catch (e) {
-        reject(toError(e, "Storage set failed"));
-      }
-    });
-
-  let syncOk = false;
-  try {
-    if (areaSync) {
-      await trySet(areaSync);
-      syncOk = true;
-    }
-  } catch {}
-
-  if (!syncOk && areaLocal) {
-    await trySet(areaLocal);
-  }
-}
-
-function normalizeSettings(value: Record<string, unknown> | null | undefined): Settings {
-  const base = SETTINGS_DEFAULTS;
-  const data = value ?? {};
-  return {
-    skipKey: typeof data.skipKey === "string" ? data.skipKey : base.skipKey,
-    holdToSend: typeof data.holdToSend === "boolean" ? data.holdToSend : base.holdToSend,
-    autoExpandChats:
-      typeof data.autoExpandChats === "boolean" ? data.autoExpandChats : base.autoExpandChats,
-    autoTempChat: typeof data.autoTempChat === "boolean" ? data.autoTempChat : base.autoTempChat,
-    tempChatEnabled:
-      typeof data.tempChatEnabled === "boolean" ? data.tempChatEnabled : base.tempChatEnabled
-  };
-}
+const lastError = () => chrome?.runtime?.lastError ?? null;
 
 async function load() {
-  const data = await storageGet(SETTINGS_DEFAULTS);
+  const data = await storageGet(SETTINGS_DEFAULTS, storageApi, lastError);
   const settings = normalizeSettings(data);
 
   selectEl.value = settings.skipKey;
@@ -155,13 +60,17 @@ async function save() {
   const autoExpandChats = !!autoExpandEl.checked;
   const autoTempChat = !!autoTempChatEl.checked;
 
-  await storageSet({
-    skipKey,
-    holdToSend,
-    autoExpandChats,
-    autoTempChat,
-    tempChatEnabled: autoTempChat
-  });
+  await storageSet(
+    {
+      skipKey,
+      holdToSend,
+      autoExpandChats,
+      autoTempChat,
+      tempChatEnabled: autoTempChat
+    },
+    storageApi,
+    lastError
+  );
 
   setHint(skipKey, holdToSend);
 }
