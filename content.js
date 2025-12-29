@@ -585,6 +585,15 @@
 
   refreshSettings();
 
+  const storageApi = (typeof browser !== "undefined" ? browser : chrome)?.storage;
+  if (storageApi && storageApi.onChanged && typeof storageApi.onChanged.addListener === "function") {
+    storageApi.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "sync" && areaName !== "local") return;
+      if (!changes || !("autoExpandChats" in changes) && !("skipKey" in changes) && !("holdToSend" in changes)) return;
+      refreshSettings();
+    });
+  }
+
   const AUTO_EXPAND_LOOP_MS = 400;
   const AUTO_EXPAND_CLICK_COOLDOWN_MS = 1500;
   const autoExpandState = {
