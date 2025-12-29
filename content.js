@@ -16,6 +16,8 @@
     modifierKey: "Shift",
     modifierGraceMs: 1600,
 
+    autoExpandChatsEnabled: true,
+
     finalTextTimeoutMs: 25000,
     finalTextQuietMs: 320,
 
@@ -90,6 +92,17 @@
     if (!el) return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
+  }
+
+  function isElementVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 1 || r.height <= 1) return false;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none") return false;
+    if (cs.visibility === "hidden") return false;
+    if (cs.opacity === "0") return false;
+    return true;
   }
 
   function describeEl(el) {
@@ -554,11 +567,16 @@
   }
 
   function refreshSettings() {
-    storageGet({ skipKey: "Shift", holdToSend: false }, (res) => {
+    storageGet({ skipKey: "Shift", holdToSend: false, autoExpandChats: true }, (res) => {
       if (res && typeof res.skipKey === "string") CFG.modifierKey = res.skipKey;
       if (CFG.modifierKey === "None") CFG.modifierKey = null;
       CFG.holdToSend = !!(res && res.holdToSend);
-      log("settings refreshed", { skipKey: CFG.modifierKey, holdToSend: CFG.holdToSend });
+      CFG.autoExpandChatsEnabled = res && "autoExpandChats" in res ? !!res.autoExpandChats : true;
+      log("settings refreshed", {
+        skipKey: CFG.modifierKey,
+        holdToSend: CFG.holdToSend,
+        autoExpandChats: CFG.autoExpandChatsEnabled
+      });
     });
   }
 
@@ -566,6 +584,156 @@
   let graceCaptured = false;
 
   refreshSettings();
+
+  const storageApi = (typeof browser !== "undefined" ? browser : chrome)?.storage;
+  if (storageApi && storageApi.onChanged && typeof storageApi.onChanged.addListener === "function") {
+    storageApi.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "sync" && areaName !== "local") return;
+      if (!changes || !("autoExpandChats" in changes) && !("skipKey" in changes) && !("holdToSend" in changes)) return;
+      refreshSettings();
+    });
+  }
+
+  const AUTO_EXPAND_LOOP_MS = 400;
+  const AUTO_EXPAND_CLICK_COOLDOWN_MS = 1500;
+  const autoExpandState = {
+    running: false,
+    started: false,
+    lastClickAtByKey: new Map(),
+    intervalId: null,
+    observer: null
+  };
+
+  function autoExpandCanClick(key) {
+    const t = autoExpandState.lastClickAtByKey.get(key) || 0;
+    return Date.now() - t > AUTO_EXPAND_CLICK_COOLDOWN_MS;
+  }
+
+  function autoExpandMarkClick(key) {
+    autoExpandState.lastClickAtByKey.set(key, Date.now());
+  }
+
+  function autoExpandDispatchClick(el) {
+    const seq = ["pointerdown", "mousedown", "mouseup", "click"];
+    for (const t of seq) {
+      el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
+    }
+  }
+
+  function autoExpandClickIfPossible(key, el, reason) {
+    if (!el) return false;
+    if (!isElementVisible(el)) return false;
+    if (!autoExpandCanClick(key)) return false;
+    autoExpandMarkClick(key);
+    tmLog("AUTOEXPAND", `click ${key}`, { preview: reason });
+    autoExpandDispatchClick(el);
+    return true;
+  }
+
+  function autoExpandSidebarEl() {
+    return qs("#stage-slideover-sidebar");
+  }
+
+  function autoExpandSidebarIsOpen() {
+    const sb = autoExpandSidebarEl();
+    if (!sb) return false;
+    if (!isElementVisible(sb)) return false;
+    return sb.getBoundingClientRect().width >= 120;
+  }
+
+  function autoExpandOpenSidebarButton() {
+    return (
+      qs('#stage-sidebar-tiny-bar button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]') ||
+      qs('button[aria-label="Open sidebar"][aria-controls="stage-slideover-sidebar"]')
+    );
+  }
+
+  function autoExpandEnsureSidebarOpen() {
+    if (autoExpandSidebarIsOpen()) return false;
+    const btn = autoExpandOpenSidebarButton();
+    return autoExpandClickIfPossible("openSidebar", btn, "sidebar closed by geometry");
+  }
+
+  function autoExpandChatHistoryNav() {
+    const sb = autoExpandSidebarEl();
+    if (!sb) return null;
+    return sb.querySelector('nav[aria-label="Chat history"]');
+  }
+
+  function autoExpandFindYourChatsSection(nav) {
+    if (!nav) return null;
+
+    const sections = Array.from(nav.querySelectorAll("div.group\\/sidebar-expando-section"));
+    for (const sec of sections) {
+      const t = norm(sec.textContent);
+      if (t.includes("your chats") || t.includes("your charts") || t.includes("чаты") || t.includes("история")) {
+        return sec;
+      }
+    }
+
+    if (sections.length >= 4) return sections[3];
+    return null;
+  }
+
+  function autoExpandSectionCollapsed(sec) {
+    const cls = String(sec.className || "");
+    if (cls.includes("sidebar-collapsed-section-margin-bottom")) return true;
+    if (cls.includes("sidebar-expanded-section-margin-bottom")) return false;
+
+    if (cls.includes("--sidebar-collapsed-section-margin-bottom")) return true;
+    if (cls.includes("--sidebar-expanded-section-margin-bottom")) return false;
+
+    return false;
+  }
+
+  function autoExpandExpandYourChats() {
+    if (!autoExpandSidebarIsOpen()) return false;
+
+    const nav = autoExpandChatHistoryNav();
+    if (!nav || !isElementVisible(nav)) return false;
+
+    const sec = autoExpandFindYourChatsSection(nav);
+    if (!sec) return false;
+
+    if (!autoExpandSectionCollapsed(sec)) return false;
+
+    const btn = sec.querySelector("button.text-token-text-tertiary.flex.w-full") ||
+      sec.querySelector("button") ||
+      sec.querySelector('[role="button"]');
+
+    return autoExpandClickIfPossible("expandYourChats", btn, "section looks collapsed");
+  }
+
+  function autoExpandTick() {
+    if (!CFG.autoExpandChatsEnabled) return;
+    if (autoExpandState.running) return;
+    autoExpandState.running = true;
+    try {
+      autoExpandEnsureSidebarOpen();
+      autoExpandExpandYourChats();
+    } catch (e) {
+      tmLog("AUTOEXPAND", "tick error", { preview: String(e && (e.stack || e.message || e)) });
+    } finally {
+      autoExpandState.running = false;
+    }
+  }
+
+  function startAutoExpand() {
+    if (autoExpandState.started) return;
+    autoExpandState.started = true;
+    autoExpandTick();
+
+    autoExpandState.intervalId = setInterval(autoExpandTick, AUTO_EXPAND_LOOP_MS);
+
+    autoExpandState.observer = new MutationObserver(() => autoExpandTick());
+    autoExpandState.observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startAutoExpand, { once: true });
+  } else {
+    startAutoExpand();
+  }
 
   document.addEventListener(
     "click",

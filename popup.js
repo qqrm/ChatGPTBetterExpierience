@@ -1,6 +1,7 @@
 const hintEl = document.getElementById("hint");
 const selectEl = document.getElementById("skipKey");
 const holdEl = document.getElementById("holdToSend");
+const autoExpandEl = document.getElementById("autoExpandChats");
 
 function setHint(skipKey, holdToSend) {
     if (skipKey === "None") {
@@ -82,12 +83,14 @@ async function storageSet(obj) {
 }
 
 async function load() {
-    const data = await storageGet({ skipKey: "Shift", holdToSend: false });
+    const data = await storageGet({ skipKey: "Shift", holdToSend: false, autoExpandChats: true });
     const skipKey = data && data.skipKey ? data.skipKey : "Shift";
     const holdToSend = !!(data && data.holdToSend);
+    const autoExpandChats = data && "autoExpandChats" in data ? !!data.autoExpandChats : true;
 
     selectEl.value = skipKey;
     holdEl.checked = holdToSend;
+    autoExpandEl.checked = autoExpandChats;
 
     setHint(skipKey, holdToSend);
 }
@@ -95,13 +98,15 @@ async function load() {
 async function save() {
     const skipKey = selectEl.value;
     const holdToSend = !!holdEl.checked;
+    const autoExpandChats = !!autoExpandEl.checked;
 
-    await storageSet({ skipKey, holdToSend });
+    await storageSet({ skipKey, holdToSend, autoExpandChats });
 
     setHint(skipKey, holdToSend);
 }
 
 selectEl.addEventListener("change", () => save().catch(() => { }));
 holdEl.addEventListener("change", () => save().catch(() => { }));
+autoExpandEl.addEventListener("change", () => save().catch(() => { }));
 
 load().catch(() => { });
