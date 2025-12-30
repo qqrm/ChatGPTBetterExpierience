@@ -916,7 +916,6 @@ declare global {
   async function runOneClickDeleteFlow() {
     if (oneClickDeleteState.deleting) return;
     oneClickDeleteState.deleting = true;
-    setOneClickDeleteDeleting(true);
     try {
       const deleteItem = await waitPresent(
         'div[role="menuitem"][data-testid="delete-chat-menu-item"]',
@@ -924,6 +923,7 @@ declare global {
         1500
       );
       if (!deleteItem) return;
+      setOneClickDeleteDeleting(true);
       humanClick(deleteItem as HTMLElement, "oneclick-delete-menu");
 
       const modal = await waitPresent(
