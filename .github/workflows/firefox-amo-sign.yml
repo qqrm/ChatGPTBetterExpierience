@@ -22,21 +22,27 @@ jobs:
       - name: Install web-ext
         run: npm i -g web-ext
 
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension assets
+        run: npm run build
+
       - name: Lint (optional)
-        run: web-ext lint --source-dir .
+        run: web-ext lint --source-dir dist
 
       - name: Build
-        run: web-ext build --source-dir . --artifacts-dir dist --overwrite-dest
+        run: web-ext build --source-dir dist --artifacts-dir web-ext-artifacts --overwrite-dest
 
       - name: Sign and submit to AMO (listed)
         env:
           AMO_API_KEY: ${{ secrets.JWT_ISSUER }}
           AMO_API_SECRET: ${{ secrets.JWT_SECRET }}
-        run: web-ext sign --source-dir . --artifacts-dir dist --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata amo-metadata.json --timeout 900000
+        run: web-ext sign --source-dir dist --artifacts-dir web-ext-artifacts --api-key "$AMO_API_KEY" --api-secret "$AMO_API_SECRET" --channel listed --amo-metadata amo-metadata.json --timeout 900000
 
       - name: Upload signed XPI artifact
         uses: actions/upload-artifact@v4
         with:
           name: signed-xpi
-          path: dist/*.xpi
+          path: web-ext-artifacts/*.xpi
           if-no-files-found: error
