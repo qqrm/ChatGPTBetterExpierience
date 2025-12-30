@@ -1,10 +1,9 @@
 import { SETTINGS_DEFAULTS, Settings } from "../domain/settings";
-import { StorageApi, storageGet, storageSet } from "../lib/storage";
+import { StoragePort } from "../domain/ports/storagePort";
 import { normalizeSettings } from "../lib/utils";
 
 export interface PopupStorageDeps {
-  storageApi: StorageApi | null | undefined;
-  lastError: () => unknown;
+  storagePort: StoragePort;
 }
 
 export interface PopupSettingsState {
@@ -24,8 +23,8 @@ export function buildAutoSendHint(skipKey: string, holdToSend: boolean): string 
     : `Hold ${skipKey} while accepting dictation to skip auto-send.`;
 }
 
-export async function loadPopupSettings({ storageApi, lastError }: PopupStorageDeps) {
-  const data = await storageGet(SETTINGS_DEFAULTS, storageApi, lastError);
+export async function loadPopupSettings({ storagePort }: PopupStorageDeps) {
+  const data = await storagePort.get(SETTINGS_DEFAULTS);
   const settings = normalizeSettings(data);
   return {
     settings,
@@ -42,17 +41,13 @@ export interface PopupSettingsInput {
 }
 
 export async function savePopupSettings(
-  { storageApi, lastError }: PopupStorageDeps,
+  { storagePort }: PopupStorageDeps,
   input: PopupSettingsInput
 ) {
-  await storageSet(
-    {
-      ...input,
-      tempChatEnabled: input.autoTempChat
-    },
-    storageApi,
-    lastError
-  );
+  await storagePort.set({
+    ...input,
+    tempChatEnabled: input.autoTempChat
+  });
 
   return {
     hint: buildAutoSendHint(input.skipKey, input.holdToSend)

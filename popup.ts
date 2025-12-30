@@ -1,5 +1,6 @@
 import { loadPopupSettings, savePopupSettings } from "./src/application/popupUseCases";
-import { StorageApi } from "./src/lib/storage";
+import { StoragePort } from "./src/domain/ports/storagePort";
+import { StorageApi, createStoragePort } from "./src/infra/storageAdapter";
 
 declare const chrome: {
   runtime?: { lastError?: unknown };
@@ -29,7 +30,8 @@ const storageApi = (
 
 const lastError = () => chrome?.runtime?.lastError ?? null;
 
-const popupDeps = { storageApi, lastError };
+const storagePort: StoragePort = createStoragePort({ storageApi, lastError });
+const popupDeps = { storagePort };
 
 async function load() {
   const { settings, hint } = await loadPopupSettings(popupDeps);

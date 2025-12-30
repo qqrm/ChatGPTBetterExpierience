@@ -1,5 +1,6 @@
+import { StoragePort } from "../domain/ports/storagePort";
 import { SettingsRecord } from "../domain/settings";
-import { isThenable } from "./utils";
+import { isThenable } from "../lib/utils";
 
 export type StorageAreaLike = {
   get: (
@@ -21,6 +22,11 @@ export type StorageApi = {
     ) => void;
   };
 };
+
+export interface StorageAdapterDeps {
+  storageApi: StorageApi | null | undefined;
+  lastError?: () => unknown;
+}
 
 function toError(err: unknown, fallback: string) {
   return err instanceof Error ? err : new Error(fallback);
@@ -107,4 +113,18 @@ export async function storageSet(
       await trySet(areaLocal);
     } catch {}
   }
+}
+
+export function createStoragePort({ storageApi, lastError }: StorageAdapterDeps): StoragePort {
+  const onChanged =
+    storageApi?.onChanged && typeof storageApi.onChanged.addListener === "function"
+      ? (handler: Parameters<NonNullable<StoragePort["onChanged"]>>[0]) =>
+          storageApi.onChanged?.addListener(handler)
+      : undefined;
+
+  return {
+    get: (defaults) => storageGet(defaults, storageApi, lastError),
+    set: (values) => storageSet(values, storageApi, lastError),
+    onChanged
+  };
 }

@@ -1,7 +1,7 @@
 import { decideAutoSend } from "./autoSendUseCases";
 import { DictationConfig, DictationInputKind } from "../domain/dictation";
 import { SETTINGS_DEFAULTS } from "../domain/settings";
-import { StorageApi, storageGet, storageSet } from "../lib/storage";
+import { StoragePort } from "../domain/ports/storagePort";
 import { isElementVisible, isVisible, norm, normalizeSettings } from "../lib/utils";
 
 declare global {
@@ -11,13 +11,19 @@ declare global {
 }
 
 export interface ContentScriptDeps {
-  storageApi?: StorageApi | null;
-  lastError?: () => unknown;
+  storagePort?: StoragePort | null;
 }
 
-export const startContentScript = ({ storageApi, lastError }: ContentScriptDeps = {}) => {
+const fallbackStoragePort: StoragePort = {
+  get: (defaults) => Promise.resolve({ ...defaults }),
+  set: () => Promise.resolve()
+};
+
+export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   if (window.__ChatGPTDictationAutoSendLoaded__) return;
   window.__ChatGPTDictationAutoSendLoaded__ = true;
+
+  const resolvedStorage = storagePort ?? fallbackStoragePort;
 
   const DEBUG = false;
   const log = (...args: unknown[]) => {
@@ -634,10 +640,8 @@ export const startContentScript = ({ storageApi, lastError }: ContentScriptDeps 
     return false;
   }
 
-  const resolvedLastError = lastError ?? (() => null);
-
   async function refreshSettings() {
-    const res = await storageGet(SETTINGS_DEFAULTS, storageApi, resolvedLastError);
+    const res = await resolvedStorage.get(SETTINGS_DEFAULTS);
     const settings = normalizeSettings(res);
     CFG.modifierKey = settings.skipKey;
     if (CFG.modifierKey === "None") CFG.modifierKey = null;
@@ -692,7 +696,7 @@ export const startContentScript = ({ storageApi, lastError }: ContentScriptDeps 
 
   function persistTempChatEnabled(value: boolean) {
     tempChatEnabled = value;
-    void storageSet({ tempChatEnabled }, storageApi, resolvedLastError);
+    void resolvedStorage.set({ tempChatEnabled });
     tmLog("TEMPCHAT", "persist state", { ok: value });
   }
 
@@ -1012,40 +1016,34 @@ export const startContentScript = ({ storageApi, lastError }: ContentScriptDeps 
   }
 
   void refreshSettings();
-  if (
-    storageApi &&
-    storageApi.onChanged &&
-    typeof storageApi.onChanged.addListener === "function"
-  ) {
-    storageApi.onChanged.addListener(
-      (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, areaName: string) => {
-        if (areaName !== "sync" && areaName !== "local") return;
-        if (
-          !changes ||
-          (!("autoExpandChats" in changes) &&
-            !("skipKey" in changes) &&
-            !("holdToSend" in changes) &&
-            !("autoTempChat" in changes) &&
-            !("oneClickDelete" in changes) &&
-            !("tempChatEnabled" in changes))
-        ) {
-          return;
-        }
-        if ("autoExpandChats" in changes) {
-          const prev = Boolean(changes.autoExpandChats.oldValue);
-          const next = Boolean(changes.autoExpandChats.newValue);
-          if (next && !prev) {
-            autoExpandReset();
-            startAutoExpand();
-          }
-          if (!next && prev) {
-            stopAutoExpand();
-          }
-        }
-        void refreshSettings();
+  resolvedStorage.onChanged?.(
+    (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, areaName: string) => {
+      if (areaName !== "sync" && areaName !== "local") return;
+      if (
+        !changes ||
+        (!("autoExpandChats" in changes) &&
+          !("skipKey" in changes) &&
+          !("holdToSend" in changes) &&
+          !("autoTempChat" in changes) &&
+          !("oneClickDelete" in changes) &&
+          !("tempChatEnabled" in changes))
+      ) {
+        return;
       }
-    );
-  }
+      if ("autoExpandChats" in changes) {
+        const prev = Boolean(changes.autoExpandChats.oldValue);
+        const next = Boolean(changes.autoExpandChats.newValue);
+        if (next && !prev) {
+          autoExpandReset();
+          startAutoExpand();
+        }
+        if (!next && prev) {
+          stopAutoExpand();
+        }
+      }
+      void refreshSettings();
+    }
+  );
 
   const AUTO_EXPAND_LOOP_MS = 400;
   const AUTO_EXPAND_CLICK_COOLDOWN_MS = 1500;

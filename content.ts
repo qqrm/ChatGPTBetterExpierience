@@ -1,5 +1,6 @@
 import { startContentScript } from "./src/application/contentScript";
-import { StorageApi } from "./src/lib/storage";
+import { StorageApi, createStoragePort } from "./src/infra/storageAdapter";
+import { StoragePort } from "./src/domain/ports/storagePort";
 
 declare const chrome: {
   runtime?: { lastError?: unknown };
@@ -16,4 +17,6 @@ const storageApi = (
 
 const lastError = () => chrome?.runtime?.lastError ?? null;
 
-startContentScript({ storageApi, lastError });
+const storagePort: StoragePort = createStoragePort({ storageApi, lastError });
+
+startContentScript({ storagePort });

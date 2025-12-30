@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SETTINGS_DEFAULTS } from "../settings";
-import { StorageAreaLike, StorageApi, storageGet, storageSet } from "../src/lib/storage";
+import { StorageAreaLike, StorageApi, storageGet, storageSet } from "../src/infra/storageAdapter";
 
 type MemoryArea = {
   data: Record<string, unknown>;
