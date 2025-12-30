@@ -42,7 +42,36 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     return null;
   }
 
+  function isMenuVisibleForDelete(menu: Element) {
+    if (!menu) return false;
+    const rect = menu.getBoundingClientRect();
+    if (rect.width <= 1 || rect.height <= 1) return false;
+    if (document.documentElement.getAttribute(ONE_CLICK_DELETE_ROOT_FLAG) === "1") return true;
+    return isElementVisible(menu);
+  }
+
+  async function waitMenuForOneClickDeleteItem(timeoutMs = 1500) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeoutMs) {
+      const menus = qsa('[data-radix-menu-content][role="menu"]');
+      for (const menu of menus) {
+        if (!isMenuVisibleForDelete(menu)) continue;
+        const item = menu.querySelector(
+          'div[role="menuitem"][data-testid="delete-chat-menu-item"]'
+        );
+        if (item) return item;
+      }
+      const fallback = document.querySelector(
+        'div[role="menuitem"][data-testid="delete-chat-menu-item"]'
+      );
+      if (fallback) return fallback;
+      await sleep(25);
+    }
+    return null;
+  }
+
   interface ContentConfig extends DictationConfig {
+    allowAutoSendInCodex: boolean;
     autoExpandChatsEnabled: boolean;
     autoTempChatEnabled: boolean;
     oneClickDeleteEnabled: boolean;
@@ -56,6 +85,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     holdToSend: false,
     modifierKey: "Shift",
     modifierGraceMs: 1600,
+    allowAutoSendInCodex: false,
 
     autoExpandChatsEnabled: true,
     autoTempChatEnabled: false,
@@ -640,12 +670,17 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     return false;
   }
 
+  function isCodexPath(pathname: string) {
+    return pathname.startsWith("/codex") || pathname.startsWith("/codecs");
+  }
+
   async function refreshSettings() {
     const res = await resolvedStorage.get(SETTINGS_DEFAULTS);
     const settings = normalizeSettings(res);
     CFG.modifierKey = settings.skipKey;
     if (CFG.modifierKey === "None") CFG.modifierKey = null;
     CFG.holdToSend = settings.holdToSend;
+    CFG.allowAutoSendInCodex = settings.allowAutoSendInCodex;
     CFG.autoExpandChatsEnabled = settings.autoExpandChats;
     CFG.autoTempChatEnabled = settings.autoTempChat;
     CFG.oneClickDeleteEnabled = settings.oneClickDelete;
@@ -653,6 +688,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     log("settings refreshed", {
       skipKey: CFG.modifierKey,
       holdToSend: CFG.holdToSend,
+      allowAutoSendInCodex: CFG.allowAutoSendInCodex,
       autoExpandChats: CFG.autoExpandChatsEnabled,
       autoTempChat: CFG.autoTempChatEnabled,
       oneClickDelete: CFG.oneClickDeleteEnabled,
@@ -921,11 +957,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     if (oneClickDeleteState.deleting) return;
     oneClickDeleteState.deleting = true;
     try {
-      const deleteItem = await waitPresent(
-        'div[role="menuitem"][data-testid="delete-chat-menu-item"]',
-        document,
-        1500
-      );
+      const deleteItem = await waitMenuForOneClickDeleteItem(1500);
       if (!deleteItem) return;
       setOneClickDeleteDeleting(true);
       humanClick(deleteItem as HTMLElement, "oneclick-delete-menu");
@@ -1024,6 +1056,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         (!("autoExpandChats" in changes) &&
           !("skipKey" in changes) &&
           !("holdToSend" in changes) &&
+          !("allowAutoSendInCodex" in changes) &&
           !("autoTempChat" in changes) &&
           !("oneClickDelete" in changes) &&
           !("tempChatEnabled" in changes))
@@ -1278,9 +1311,21 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         });
       }
 
-      if (CFG.enabled && btn instanceof HTMLButtonElement && isSubmitDictationButton(btn)) {
+      if (
+        CFG.enabled &&
+        btn instanceof HTMLButtonElement &&
+        isSubmitDictationButton(btn) &&
+        (!isCodexPath(location.pathname) || CFG.allowAutoSendInCodex)
+      ) {
         void refreshSettings();
         void runFlowAfterSubmitClick(btnDesc, isModifierHeldFromEvent(e));
+      } else if (
+        isCodexPath(location.pathname) &&
+        !CFG.allowAutoSendInCodex &&
+        btn instanceof HTMLButtonElement &&
+        isSubmitDictationButton(btn)
+      ) {
+        tmLog("FLOW", "auto-send skipped on Codex path");
       }
     },
     true

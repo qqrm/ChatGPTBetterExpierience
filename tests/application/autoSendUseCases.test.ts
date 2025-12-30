@@ -16,4 +16,9 @@ describe("decideAutoSend", () => {
     const decision = decideAutoSend({ holdToSend: false, heldDuring: false });
     expect(decision.shouldSend).toBe(true);
   });
+
+  it("skips send when hold-to-send is disabled and modifier is held", () => {
+    const decision = decideAutoSend({ holdToSend: false, heldDuring: true });
+    expect(decision.shouldSend).toBe(false);
+  });
 });

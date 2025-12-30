@@ -35,6 +35,7 @@ export async function loadPopupSettings({ storagePort }: PopupStorageDeps) {
 export interface PopupSettingsInput {
   skipKey: string;
   holdToSend: boolean;
+  allowAutoSendInCodex: boolean;
   autoExpandChats: boolean;
   autoTempChat: boolean;
   oneClickDelete: boolean;

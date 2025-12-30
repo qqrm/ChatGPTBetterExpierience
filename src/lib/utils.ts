@@ -27,6 +27,10 @@ export function normalizeSettings(value: Record<string, unknown> | null | undefi
   return {
     skipKey: typeof data.skipKey === "string" ? data.skipKey : base.skipKey,
     holdToSend: typeof data.holdToSend === "boolean" ? data.holdToSend : base.holdToSend,
+    allowAutoSendInCodex:
+      typeof data.allowAutoSendInCodex === "boolean"
+        ? data.allowAutoSendInCodex
+        : base.allowAutoSendInCodex,
     autoExpandChats:
       typeof data.autoExpandChats === "boolean" ? data.autoExpandChats : base.autoExpandChats,
     autoTempChat: typeof data.autoTempChat === "boolean" ? data.autoTempChat : base.autoTempChat,

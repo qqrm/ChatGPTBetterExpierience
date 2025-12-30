@@ -12,6 +12,7 @@ describe("utils", () => {
     const input = {
       skipKey: "Alt",
       holdToSend: true,
+      allowAutoSendInCodex: "no",
       autoExpandChats: "no",
       autoTempChat: false,
       tempChatEnabled: "yes",
@@ -23,6 +24,7 @@ describe("utils", () => {
     expect(normalized).toEqual({
       skipKey: "Alt",
       holdToSend: true,
+      allowAutoSendInCodex: SETTINGS_DEFAULTS.allowAutoSendInCodex,
       autoExpandChats: SETTINGS_DEFAULTS.autoExpandChats,
       autoTempChat: false,
       tempChatEnabled: SETTINGS_DEFAULTS.tempChatEnabled,
