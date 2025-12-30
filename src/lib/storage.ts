@@ -1,4 +1,4 @@
-import { SettingsRecord } from "../../settings";
+import { SettingsRecord } from "../domain/settings";
 import { isThenable } from "./utils";
 
 export type StorageAreaLike = {

@@ -1,4 +1,4 @@
-import { SETTINGS_DEFAULTS, Settings } from "../../settings";
+import { SETTINGS_DEFAULTS, Settings } from "../domain/settings";
 
 export function norm(value: string | null) {
   return String(value || "").toLowerCase();
