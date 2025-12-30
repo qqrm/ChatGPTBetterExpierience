@@ -1041,12 +1041,14 @@ declare global {
   const autoExpandState: {
     running: boolean;
     started: boolean;
+    completed: boolean;
     lastClickAtByKey: Map<string, number>;
     intervalId: number | null;
     observer: MutationObserver | null;
   } = {
     running: false,
     started: false,
+    completed: false,
     lastClickAtByKey: new Map(),
     intervalId: null,
     observer: null
@@ -1166,13 +1168,45 @@ declare global {
     );
   }
 
+  function autoExpandTryFinish() {
+    if (!autoExpandSidebarIsOpen()) {
+      autoExpandEnsureSidebarOpen();
+      return false;
+    }
+
+    const nav = autoExpandChatHistoryNav();
+    if (!nav || !isElementVisible(nav)) return false;
+
+    const sec = autoExpandFindYourChatsSection(nav);
+    if (!sec) return false;
+
+    if (!autoExpandSectionCollapsed(sec)) return true;
+
+    return autoExpandExpandYourChats();
+  }
+
+  function stopAutoExpand() {
+    if (autoExpandState.intervalId !== null) {
+      window.clearInterval(autoExpandState.intervalId);
+      autoExpandState.intervalId = null;
+    }
+    if (autoExpandState.observer) {
+      autoExpandState.observer.disconnect();
+      autoExpandState.observer = null;
+    }
+  }
+
   function autoExpandTick() {
     if (!CFG.autoExpandChatsEnabled) return;
+    if (autoExpandState.completed) return;
     if (autoExpandState.running) return;
     autoExpandState.running = true;
     try {
-      autoExpandEnsureSidebarOpen();
-      autoExpandExpandYourChats();
+      const done = autoExpandTryFinish();
+      if (done) {
+        autoExpandState.completed = true;
+        stopAutoExpand();
+      }
     } catch (e) {
       tmLog("AUTOEXPAND", "tick error", {
         preview: String((e && (e as Error).stack) || (e as Error).message || e)
