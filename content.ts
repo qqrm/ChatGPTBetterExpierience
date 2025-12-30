@@ -1031,6 +1031,17 @@ declare global {
         ) {
           return;
         }
+        if ("autoExpandChats" in changes) {
+          const prev = Boolean(changes.autoExpandChats.oldValue);
+          const next = Boolean(changes.autoExpandChats.newValue);
+          if (next && !prev) {
+            autoExpandReset();
+            startAutoExpand();
+          }
+          if (!next && prev) {
+            stopAutoExpand();
+          }
+        }
         void refreshSettings();
       }
     );
@@ -1068,6 +1079,13 @@ declare global {
     for (const t of seq) {
       el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
     }
+  }
+
+  function autoExpandReset() {
+    autoExpandState.running = false;
+    autoExpandState.started = false;
+    autoExpandState.completed = false;
+    autoExpandState.lastClickAtByKey.clear();
   }
 
   function autoExpandClickIfPossible(key: string, el: HTMLElement | null, reason: string) {
