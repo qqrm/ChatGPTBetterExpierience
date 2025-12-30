@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ChatGPT Dictation Test Fixture</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 24px;
+      }
+
+      button {
+        font-size: 16px;
+        padding: 8px 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <button id="temp-chat" aria-label="Turn on temporary chat">Turn on temporary chat</button>
+    </main>
+    <script>
+      const tempChatButton = document.getElementById("temp-chat");
+
+      tempChatButton.addEventListener("click", () => {
+        document.body.dataset.tempChat = "enabled";
+        tempChatButton.setAttribute("aria-label", "Turn off temporary chat");
+        tempChatButton.textContent = "Turn off temporary chat";
+      });
+    </script>
+  </body>
+</html>
