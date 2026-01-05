@@ -307,10 +307,27 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
 
   function isSubmitDictationButton(btn: HTMLButtonElement | null) {
     if (!btn) return false;
-    const a = norm(btn.getAttribute("aria-label"));
-    const t = norm(btn.getAttribute("title"));
-    const dt = norm(btn.getAttribute("data-testid"));
-    const txt = norm(btn.textContent);
+
+    const aRaw = btn.getAttribute("aria-label");
+    const tRaw = btn.getAttribute("title");
+    const dtRaw = btn.getAttribute("data-testid");
+    const txtRaw = btn.textContent;
+
+    const a = norm(aRaw);
+    const t = norm(tRaw);
+    const dt = norm(dtRaw);
+    const txt = norm(txtRaw);
+
+    // Codex special case: dictation accept is aria-label="Submit"
+    // Guard it so we do not accidentally treat the main send/submit as dictation accept.
+    if (a === "submit") {
+      let p: HTMLElement | null = btn.parentElement;
+      for (let i = 0; i < 8 && p; i += 1) {
+        const hasDictateButton = !!p.querySelector('button[aria-label="Dictate button"]');
+        if (hasDictateButton) return true;
+        p = p.parentElement;
+      }
+    }
 
     if (a.includes("submit dictation")) return true;
     if (
