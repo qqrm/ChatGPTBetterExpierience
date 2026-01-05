@@ -242,17 +242,28 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
 
   type TextboxElement = HTMLTextAreaElement | HTMLElement;
 
-  function findTextbox(): TextboxElement | null {
-    return (
-      qs<HTMLTextAreaElement>('textarea[data-testid="textbox"]') ||
-      qs<HTMLTextAreaElement>("textarea#prompt-textarea") ||
-      qs<HTMLTextAreaElement>("#prompt-textarea") ||
-      qs<HTMLTextAreaElement>("textarea[data-testid='prompt-textarea']") ||
-      qs<HTMLTextAreaElement>("textarea[placeholder]") ||
-      qs<HTMLElement>('div[contenteditable="true"][role="textbox"]') ||
-      qs<HTMLElement>('[role="textbox"][contenteditable="true"]') ||
-      null
-    );
+  function findTextbox(): HTMLElement | null {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) {
+      const ce = active.getAttribute("contenteditable");
+      if (ce === "true") return active;
+    }
+
+    const byId = document.getElementById("prompt-textarea");
+    if (byId instanceof HTMLElement && byId.getAttribute("contenteditable") === "true") {
+      return byId;
+    }
+
+    const byTestId = document.querySelector('[data-testid="prompt-textarea"]');
+    if (byTestId instanceof HTMLElement) return byTestId;
+
+    const textarea = document.querySelector("textarea");
+    if (textarea instanceof HTMLTextAreaElement) return textarea;
+
+    const anyCe = document.querySelector('[contenteditable="true"]');
+    if (anyCe instanceof HTMLElement) return anyCe;
+
+    return null;
   }
 
   function readTextboxText(el: TextboxElement | null) {
@@ -325,7 +336,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   }
 
   function isTextboxTarget(target: EventTarget | null) {
-    if (!(target instanceof Element)) return false;
+    if (!(target instanceof Node)) return false;
     const textbox = findTextbox();
     if (!textbox) return false;
     return target === textbox || textbox.contains(target);
