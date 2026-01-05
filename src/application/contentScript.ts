@@ -367,9 +367,25 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   function triggerEditLastMessage() {
     const message = findLastUserMessage();
     if (!message) return false;
-    const buttons = qsa<HTMLButtonElement>("button", message);
-    const editBtn = buttons.find((btn) => isEditMessageButton(btn)) ?? null;
+
+    const article =
+      message.closest("article") ??
+      message.closest("[data-message-author-role]") ??
+      message.parentElement;
+
+    const searchRoot = article instanceof HTMLElement ? article : message;
+
+    const buttons = qsa<HTMLButtonElement>("button", searchRoot);
+
+    const editBtn =
+      buttons.find((btn) => {
+        const a = norm(btn.getAttribute("aria-label"));
+        if (a.includes("edit message")) return true;
+        return isEditMessageButton(btn);
+      }) ?? null;
+
     if (!editBtn) return false;
+
     return humanClick(editBtn, "edit last message");
   }
 
