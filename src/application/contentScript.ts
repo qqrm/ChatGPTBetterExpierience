@@ -648,12 +648,30 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   }
 
   function findCodexSubmitButton(): HTMLButtonElement | null {
-    const form = qs<HTMLFormElement>('form[aria-label="Codex composer"]');
+    const textbox = findTextbox();
+    const formFromTextbox = textbox?.closest("form");
+    const form =
+      qs<HTMLFormElement>('form[aria-label="Codex composer"]') ||
+      qs<HTMLFormElement>('form[data-testid*="codex" i]') ||
+      formFromTextbox;
     if (!form) return null;
-    const btn = form.querySelector('button[aria-label="Submit"]');
-    if (!(btn instanceof HTMLButtonElement)) return null;
-    if (!isElementVisible(btn)) return null;
-    return btn;
+    const buttons = Array.from(form.querySelectorAll("button")).filter(
+      (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
+    );
+    const candidates = buttons.filter(
+      (btn) => isElementVisible(btn) && !isSubmitDictationButton(btn)
+    );
+    const preferred = candidates.find((btn) => {
+      const aria = norm(btn.getAttribute("aria-label"));
+      const title = norm(btn.getAttribute("title"));
+      const dt = norm(btn.getAttribute("data-testid"));
+      if (aria.includes("submit") || aria.includes("send")) return true;
+      if (title.includes("submit") || title.includes("send")) return true;
+      if (dt.includes("submit") || dt.includes("send")) return true;
+      if (btn.getAttribute("type") === "submit") return true;
+      return false;
+    });
+    return preferred ?? candidates[0] ?? null;
   }
 
   async function waitForAvailableButton(
