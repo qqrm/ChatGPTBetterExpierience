@@ -36,6 +36,7 @@ export interface PopupSettingsInput {
   skipKey: string;
   holdToSend: boolean;
   allowAutoSendInCodex: boolean;
+  editLastMessageOnArrowUp: boolean;
   autoExpandChats: boolean;
   autoTempChat: boolean;
   oneClickDelete: boolean;

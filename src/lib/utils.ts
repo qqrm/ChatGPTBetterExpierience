@@ -31,6 +31,10 @@ export function normalizeSettings(value: Record<string, unknown> | null | undefi
       typeof data.allowAutoSendInCodex === "boolean"
         ? data.allowAutoSendInCodex
         : base.allowAutoSendInCodex,
+    editLastMessageOnArrowUp:
+      typeof data.editLastMessageOnArrowUp === "boolean"
+        ? data.editLastMessageOnArrowUp
+        : base.editLastMessageOnArrowUp,
     autoExpandChats:
       typeof data.autoExpandChats === "boolean" ? data.autoExpandChats : base.autoExpandChats,
     autoTempChat: typeof data.autoTempChat === "boolean" ? data.autoTempChat : base.autoTempChat,

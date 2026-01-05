@@ -1,4 +1,5 @@
 import { decideAutoSend } from "./autoSendUseCases";
+import { shouldTriggerArrowUpEdit } from "./editLastMessageUseCases";
 import { DictationConfig, DictationInputKind } from "../domain/dictation";
 import { SETTINGS_DEFAULTS } from "../domain/settings";
 import { StoragePort } from "../domain/ports/storagePort";
@@ -72,6 +73,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
 
   interface ContentConfig extends DictationConfig {
     allowAutoSendInCodex: boolean;
+    editLastMessageOnArrowUp: boolean;
     autoExpandChatsEnabled: boolean;
     autoTempChatEnabled: boolean;
     oneClickDeleteEnabled: boolean;
@@ -86,6 +88,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     modifierKey: "Shift",
     modifierGraceMs: 1600,
     allowAutoSendInCodex: false,
+    editLastMessageOnArrowUp: true,
 
     autoExpandChatsEnabled: true,
     autoTempChatEnabled: false,
@@ -321,6 +324,44 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     return false;
   }
 
+  function isTextboxTarget(target: EventTarget | null) {
+    if (!(target instanceof Element)) return false;
+    const textbox = findTextbox();
+    if (!textbox) return false;
+    return target === textbox || textbox.contains(target);
+  }
+
+  function findLastUserMessage() {
+    const candidates = qsa<HTMLElement>('[data-message-author-role="user"]');
+    for (let i = candidates.length - 1; i >= 0; i -= 1) {
+      const msg = candidates[i];
+      if (isElementVisible(msg)) return msg;
+    }
+    return null;
+  }
+
+  function isEditMessageButton(btn: HTMLButtonElement | null) {
+    if (!btn) return false;
+    const a = norm(btn.getAttribute("aria-label"));
+    const t = norm(btn.getAttribute("title"));
+    const dt = norm(btn.getAttribute("data-testid"));
+    const txt = norm(btn.textContent);
+    if (dt.includes("edit")) return true;
+    if (a.includes("edit") || a.includes("редакт") || a.includes("измен")) return true;
+    if (t.includes("edit") || t.includes("редакт") || t.includes("измен")) return true;
+    if (txt.includes("edit") || txt.includes("редакт") || txt.includes("измен")) return true;
+    return false;
+  }
+
+  function triggerEditLastMessage() {
+    const message = findLastUserMessage();
+    if (!message) return false;
+    const buttons = qsa<HTMLButtonElement>("button", message);
+    const editBtn = buttons.find((btn) => isEditMessageButton(btn)) ?? null;
+    if (!editBtn) return false;
+    return humanClick(editBtn, "edit last message");
+  }
+
   function findStopGeneratingButton() {
     const candidates = qsa<HTMLButtonElement>("button").filter((b) => {
       const a = norm(b.getAttribute("aria-label"));
@@ -378,6 +419,26 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         const graceActive = performance.now() <= graceUntilMs;
         if (graceActive) graceCaptured = true;
         tmLog("KEY", "down modifier", { graceActive, graceMs: CFG.modifierGraceMs });
+      }
+      if (
+        shouldTriggerArrowUpEdit({
+          enabled: CFG.editLastMessageOnArrowUp,
+          key: e.key,
+          altKey: e.altKey,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          shiftKey: e.shiftKey,
+          isComposing: e.isComposing,
+          inputText: readInputText().text
+        }) &&
+        isTextboxTarget(e.target)
+      ) {
+        const ok = triggerEditLastMessage();
+        tmLog("KEY", "arrow up edit last message", { ok });
+        if (ok) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }
     },
     true
@@ -671,7 +732,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   }
 
   function isCodexPath(pathname: string) {
-    return pathname.startsWith("/codex") || pathname.startsWith("/codecs");
+    return pathname.includes("/codex") || pathname.includes("/codecs");
   }
 
   async function refreshSettings() {
@@ -681,6 +742,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     if (CFG.modifierKey === "None") CFG.modifierKey = null;
     CFG.holdToSend = settings.holdToSend;
     CFG.allowAutoSendInCodex = settings.allowAutoSendInCodex;
+    CFG.editLastMessageOnArrowUp = settings.editLastMessageOnArrowUp;
     CFG.autoExpandChatsEnabled = settings.autoExpandChats;
     CFG.autoTempChatEnabled = settings.autoTempChat;
     CFG.oneClickDeleteEnabled = settings.oneClickDelete;
@@ -689,6 +751,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       skipKey: CFG.modifierKey,
       holdToSend: CFG.holdToSend,
       allowAutoSendInCodex: CFG.allowAutoSendInCodex,
+      editLastMessageOnArrowUp: CFG.editLastMessageOnArrowUp,
       autoExpandChats: CFG.autoExpandChatsEnabled,
       autoTempChat: CFG.autoTempChatEnabled,
       oneClickDelete: CFG.oneClickDeleteEnabled,
@@ -1057,6 +1120,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           !("skipKey" in changes) &&
           !("holdToSend" in changes) &&
           !("allowAutoSendInCodex" in changes) &&
+          !("editLastMessageOnArrowUp" in changes) &&
           !("autoTempChat" in changes) &&
           !("oneClickDelete" in changes) &&
           !("tempChatEnabled" in changes))
@@ -1311,21 +1375,15 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         });
       }
 
-      if (
-        CFG.enabled &&
-        btn instanceof HTMLButtonElement &&
-        isSubmitDictationButton(btn) &&
-        (!isCodexPath(location.pathname) || CFG.allowAutoSendInCodex)
-      ) {
-        void refreshSettings();
-        void runFlowAfterSubmitClick(btnDesc, isModifierHeldFromEvent(e));
-      } else if (
-        isCodexPath(location.pathname) &&
-        !CFG.allowAutoSendInCodex &&
-        btn instanceof HTMLButtonElement &&
-        isSubmitDictationButton(btn)
-      ) {
-        tmLog("FLOW", "auto-send skipped on Codex path");
+      if (CFG.enabled && btn instanceof HTMLButtonElement && isSubmitDictationButton(btn)) {
+        void (async () => {
+          await refreshSettings();
+          if (!isCodexPath(location.pathname) || CFG.allowAutoSendInCodex) {
+            await runFlowAfterSubmitClick(btnDesc, isModifierHeldFromEvent(e));
+          } else {
+            tmLog("FLOW", "auto-send skipped on Codex path");
+          }
+        })();
       }
     },
     true

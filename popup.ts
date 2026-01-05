@@ -21,6 +21,7 @@ const hintEl = mustGetElement<HTMLElement>("hint");
 const selectEl = mustGetElement<HTMLSelectElement>("skipKey");
 const holdEl = mustGetElement<HTMLInputElement>("holdToSend");
 const allowCodexEl = mustGetElement<HTMLInputElement>("allowAutoSendInCodex");
+const editLastMessageEl = mustGetElement<HTMLInputElement>("editLastMessageOnArrowUp");
 const autoExpandEl = mustGetElement<HTMLInputElement>("autoExpandChats");
 const autoTempChatEl = mustGetElement<HTMLInputElement>("autoTempChat");
 const oneClickDeleteEl = mustGetElement<HTMLInputElement>("oneClickDelete");
@@ -40,6 +41,7 @@ async function load() {
   selectEl.value = settings.skipKey;
   holdEl.checked = settings.holdToSend;
   allowCodexEl.checked = settings.allowAutoSendInCodex;
+  editLastMessageEl.checked = settings.editLastMessageOnArrowUp;
   autoExpandEl.checked = settings.autoExpandChats;
   autoTempChatEl.checked = settings.autoTempChat;
   oneClickDeleteEl.checked = settings.oneClickDelete;
@@ -52,6 +54,7 @@ async function save() {
     skipKey: selectEl.value,
     holdToSend: !!holdEl.checked,
     allowAutoSendInCodex: !!allowCodexEl.checked,
+    editLastMessageOnArrowUp: !!editLastMessageEl.checked,
     autoExpandChats: !!autoExpandEl.checked,
     autoTempChat: !!autoTempChatEl.checked,
     oneClickDelete: !!oneClickDeleteEl.checked
@@ -64,6 +67,7 @@ async function save() {
 selectEl.addEventListener("change", () => void save().catch(() => {}));
 holdEl.addEventListener("change", () => void save().catch(() => {}));
 allowCodexEl.addEventListener("change", () => void save().catch(() => {}));
+editLastMessageEl.addEventListener("change", () => void save().catch(() => {}));
 autoExpandEl.addEventListener("change", () => void save().catch(() => {}));
 autoTempChatEl.addEventListener("change", () => void save().catch(() => {}));
 oneClickDeleteEl.addEventListener("change", () => void save().catch(() => {}));

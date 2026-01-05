@@ -30,6 +30,7 @@ describe("popup settings", () => {
       skipKey: "Alt",
       holdToSend: true,
       allowAutoSendInCodex: "nope",
+      editLastMessageOnArrowUp: "nope",
       autoExpandChats: "yes",
       autoTempChat: false,
       tempChatEnabled: true,
@@ -47,6 +48,7 @@ describe("popup settings", () => {
       skipKey: "Alt",
       holdToSend: true,
       allowAutoSendInCodex: SETTINGS_DEFAULTS.allowAutoSendInCodex,
+      editLastMessageOnArrowUp: SETTINGS_DEFAULTS.editLastMessageOnArrowUp,
       autoExpandChats: SETTINGS_DEFAULTS.autoExpandChats,
       autoTempChat: false,
       tempChatEnabled: true,
@@ -69,6 +71,7 @@ describe("popup settings", () => {
       skipKey: "Shift",
       holdToSend: false,
       allowAutoSendInCodex: true,
+      editLastMessageOnArrowUp: true,
       autoExpandChats: false,
       autoTempChat: true,
       oneClickDelete: true
