@@ -947,64 +947,29 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   const transcribeSnapshots = new Map<string, InputReadResult>();
 
   function injectPageTranscribeHook() {
+    const runtime =
+      (
+        globalThis as typeof globalThis & {
+          chrome?: { runtime?: { getURL?: (p: string) => string } };
+        }
+      ).chrome?.runtime ??
+      (
+        globalThis as typeof globalThis & {
+          browser?: { runtime?: { getURL?: (p: string) => string } };
+        }
+      ).browser?.runtime;
+
+    if (!runtime?.getURL) {
+      tmLog("TRANSCRIBE", "runtime.getURL not available");
+      return;
+    }
+
     const script = document.createElement("script");
     script.setAttribute("data-tm-transcribe-hook", "1");
-    script.textContent = `
-      (() => {
-        const SOURCE = "${TRANSCRIBE_HOOK_SOURCE}";
-        const isTranscribeUrl = (url) => typeof url === "string" && url.includes("/backend-api/transcribe");
-        let seq = 0;
-        const post = (payload) => {
-          try {
-            window.postMessage({ source: SOURCE, ...payload }, "*");
-          } catch (_) {}
-        };
-
-        const getUrl = (input) => {
-          if (typeof input === "string") return input;
-          if (input && typeof input.url === "string") return input.url;
-          return "";
-        };
-
-        const originalFetch = window.fetch.bind(window);
-        window.fetch = (input, init) => {
-          const url = getUrl(input);
-          if (!isTranscribeUrl(url)) return originalFetch(input, init);
-          const id = "f" + (++seq);
-          post({ type: "start", id });
-          return originalFetch(input, init).then((resp) => {
-            post({ type: "complete", id });
-            return resp;
-          });
-        };
-
-        const OriginalXHR = window.XMLHttpRequest;
-        function HookedXMLHttpRequest() {
-          const xhr = new OriginalXHR();
-          let url = "";
-          const open = xhr.open;
-          xhr.open = function (method, urlArg, async, username, password) {
-            url = String(urlArg || "");
-            if (isTranscribeUrl(url)) {
-              const id = "x" + (++seq);
-              xhr.__tmTranscribeId = id;
-              post({ type: "start", id });
-            }
-            return open.call(xhr, method, urlArg, async ?? true, username ?? null, password ?? null);
-          };
-          xhr.addEventListener("loadend", () => {
-            if (!isTranscribeUrl(url)) return;
-            const id = xhr.__tmTranscribeId || "";
-            if (id) post({ type: "complete", id });
-          });
-          return xhr;
-        }
-        HookedXMLHttpRequest.prototype = OriginalXHR.prototype;
-        window.XMLHttpRequest = HookedXMLHttpRequest;
-      })();
-    `;
+    script.dataset.source = TRANSCRIBE_HOOK_SOURCE;
+    script.src = runtime.getURL("pageTranscribeHook.js");
+    script.onload = () => script.remove();
     document.documentElement.appendChild(script);
-    script.remove();
   }
 
   function installTranscribeHook({ mode }: { mode: TranscribeMode }) {

@@ -26,6 +26,11 @@ await Promise.all([
     ...shared,
     entryPoints: ["popup.ts"],
     outfile: `${distDir}/popup.js`
+  }),
+  build({
+    ...shared,
+    entryPoints: ["src/pageTranscribeHook.ts"],
+    outfile: `${distDir}/pageTranscribeHook.js`
   })
 ]);
 
