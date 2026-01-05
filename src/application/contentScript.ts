@@ -719,6 +719,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   let inFlight = false;
   let transcribeInFlight = false;
   let lastDictationSubmitClickAt = 0;
+  let transcribeHookInstalled = false;
 
   async function runFlowAfterSubmitClick(submitBtnDesc: string, clickHeld: boolean) {
     if (inFlight) {
@@ -942,64 +943,97 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     }
   }
 
-  function isTranscribeUrl(url: string) {
-    return url.includes("/backend-api/transcribe");
-  }
+  const TRANSCRIBE_HOOK_SOURCE = "tm-dictation-transcribe";
+  const transcribeSnapshots = new Map<string, InputReadResult>();
 
-  function getRequestUrl(input: RequestInfo | URL) {
-    if (typeof input === "string") return input;
-    if (input instanceof Request) return input.url;
-    if (input instanceof URL) return input.toString();
-    return "";
+  function injectPageTranscribeHook() {
+    const script = document.createElement("script");
+    script.setAttribute("data-tm-transcribe-hook", "1");
+    script.textContent = `
+      (() => {
+        const SOURCE = "${TRANSCRIBE_HOOK_SOURCE}";
+        const isTranscribeUrl = (url) => typeof url === "string" && url.includes("/backend-api/transcribe");
+        let seq = 0;
+        const post = (payload) => {
+          try {
+            window.postMessage({ source: SOURCE, ...payload }, "*");
+          } catch (_) {}
+        };
+
+        const getUrl = (input) => {
+          if (typeof input === "string") return input;
+          if (input && typeof input.url === "string") return input.url;
+          return "";
+        };
+
+        const originalFetch = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+          const url = getUrl(input);
+          if (!isTranscribeUrl(url)) return originalFetch(input, init);
+          const id = "f" + (++seq);
+          post({ type: "start", id });
+          return originalFetch(input, init).then((resp) => {
+            post({ type: "complete", id });
+            return resp;
+          });
+        };
+
+        const OriginalXHR = window.XMLHttpRequest;
+        function HookedXMLHttpRequest() {
+          const xhr = new OriginalXHR();
+          let url = "";
+          const open = xhr.open;
+          xhr.open = function (method, urlArg, async, username, password) {
+            url = String(urlArg || "");
+            if (isTranscribeUrl(url)) {
+              const id = "x" + (++seq);
+              xhr.__tmTranscribeId = id;
+              post({ type: "start", id });
+            }
+            return open.call(xhr, method, urlArg, async ?? true, username ?? null, password ?? null);
+          };
+          xhr.addEventListener("loadend", () => {
+            if (!isTranscribeUrl(url)) return;
+            const id = xhr.__tmTranscribeId || "";
+            if (id) post({ type: "complete", id });
+          });
+          return xhr;
+        }
+        HookedXMLHttpRequest.prototype = OriginalXHR.prototype;
+        window.XMLHttpRequest = HookedXMLHttpRequest;
+      })();
+    `;
+    document.documentElement.appendChild(script);
+    script.remove();
   }
 
   function installTranscribeHook({ mode }: { mode: TranscribeMode }) {
-    const handleComplete = (beforeText: string, beforeInputOk: boolean) => {
-      void runFlowAfterTranscribe({ mode, beforeText, beforeInputOk });
-    };
+    if (transcribeHookInstalled) return;
+    transcribeHookInstalled = true;
 
-    const originalFetch = window.fetch.bind(window);
-    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = getRequestUrl(input);
-      const shouldWatch = isTranscribeUrl(url);
-      const beforeSnapshot = shouldWatch ? readInputText() : null;
-      const result = originalFetch(input, init);
-      if (shouldWatch) {
-        return result.then((resp) => {
-          handleComplete(beforeSnapshot?.text ?? "", beforeSnapshot?.ok ?? false);
-          return resp;
+    injectPageTranscribeHook();
+
+    window.addEventListener("message", (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const data = event.data as { source?: string; type?: string; id?: string };
+      if (!data || data.source !== TRANSCRIBE_HOOK_SOURCE) return;
+      if (!data.type || !data.id) return;
+
+      if (data.type === "start") {
+        transcribeSnapshots.set(data.id, readInputText());
+        return;
+      }
+
+      if (data.type === "complete") {
+        const snapshot = transcribeSnapshots.get(data.id);
+        if (snapshot) transcribeSnapshots.delete(data.id);
+        void runFlowAfterTranscribe({
+          mode,
+          beforeText: snapshot?.text ?? "",
+          beforeInputOk: snapshot?.ok ?? false
         });
       }
-      return result;
-    }) as typeof window.fetch;
-
-    const OriginalXHR = window.XMLHttpRequest;
-    function HookedXMLHttpRequest(this: XMLHttpRequest) {
-      const xhr = new OriginalXHR();
-      let url = "";
-      let beforeSnapshot: InputReadResult | null = null;
-      const open = xhr.open.bind(xhr);
-      xhr.open = function (
-        method: string,
-        urlArg: string,
-        async?: boolean,
-        username?: string | null,
-        password?: string | null
-      ) {
-        url = String(urlArg || "");
-        if (isTranscribeUrl(url)) {
-          beforeSnapshot = readInputText();
-        }
-        return open(method, urlArg, async ?? true, username ?? null, password ?? null);
-      };
-      xhr.addEventListener("loadend", () => {
-        if (!isTranscribeUrl(url)) return;
-        handleComplete(beforeSnapshot?.text ?? "", beforeSnapshot?.ok ?? false);
-      });
-      return xhr;
-    }
-    HookedXMLHttpRequest.prototype = OriginalXHR.prototype;
-    window.XMLHttpRequest = HookedXMLHttpRequest as unknown as typeof XMLHttpRequest;
+    });
   }
 
   function isInterestingButton(btn: HTMLButtonElement | null) {
