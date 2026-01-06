@@ -290,7 +290,9 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     return (
       qs<HTMLButtonElement>('[data-testid="send-button"]') ||
       qs<HTMLButtonElement>("#composer-submit-button") ||
+      qs<HTMLButtonElement>("button.composer-submit-btn") ||
       qs<HTMLButtonElement>("form button[type='submit']") ||
+      qs<HTMLButtonElement>('button[aria-label="Submit"]') ||
       qs<HTMLButtonElement>('button[aria-label*="Send"]') ||
       qs<HTMLButtonElement>('button[aria-label*="Отправ"]') ||
       null
@@ -321,6 +323,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     // Codex special case: dictation accept is aria-label="Submit"
     // Guard it so we do not accidentally treat the main send/submit as dictation accept.
     if (a === "submit") {
+      if (btn.classList.contains("composer-submit-btn")) return false;
       let p: HTMLElement | null = btn.parentElement;
       for (let i = 0; i < 8 && p; i += 1) {
         const hasDictateButton = !!p.querySelector('button[aria-label="Dictate button"]');
@@ -762,6 +765,12 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       qs<HTMLFormElement>('form[data-testid*="codex" i]') ||
       formFromTextbox;
     if (!form) return null;
+    const codexSubmit = form.querySelector<HTMLButtonElement>(
+      "button.composer-submit-btn, button[aria-label='Submit']"
+    );
+    if (codexSubmit) return codexSubmit;
+    const sendBtn = findSendButton();
+    if (sendBtn && form.contains(sendBtn)) return sendBtn;
     const buttons = Array.from(form.querySelectorAll("button")).filter(
       (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
     );
@@ -781,7 +790,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
       if (btn.getAttribute("type") === "submit") return true;
       return false;
     });
-    return preferred ?? candidates[0] ?? null;
+    return preferred ?? candidates[candidates.length - 1] ?? null;
   }
 
   async function waitForAvailableButton(
