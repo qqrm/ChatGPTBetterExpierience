@@ -1,5 +1,6 @@
 import { decideAutoSend } from "./autoSendUseCases";
 import { shouldTriggerArrowUpEdit } from "./editLastMessageUseCases";
+import { updateWideChatStyle } from "./wideChat";
 import { DictationConfig, DictationInputKind } from "../domain/dictation";
 import { SETTINGS_DEFAULTS } from "../domain/settings";
 import { StoragePort } from "../domain/ports/storagePort";
@@ -1278,8 +1279,6 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   }
 
   const WIDE_CHAT_STYLE_ID = "qqrm-wide-chat-style";
-  const WIDE_CHAT_FULL_WIDTH_PCT = 0.95;
-
   const wideChatState: {
     started: boolean;
     observer: MutationObserver | null;
@@ -1312,7 +1311,7 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
   }
 
   function ensureWideChatStyle() {
-    let style = document.getElementById(WIDE_CHAT_STYLE_ID);
+    let style = document.getElementById(WIDE_CHAT_STYLE_ID) as HTMLStyleElement | null;
     if (!style) {
       style = document.createElement("style");
       style.id = WIDE_CHAT_STYLE_ID;
@@ -1330,27 +1329,12 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     if (CFG.wideChatWidth <= 0) return;
     const basePx = ensureWideChatBaseWidth();
     if (!basePx) return;
-    const fullPx = Math.round(window.innerWidth * WIDE_CHAT_FULL_WIDTH_PCT);
-    const sideMarginPx = Math.max(0, Math.round((window.innerWidth - fullPx) / 2));
-    const targetPx = Math.round(basePx + (CFG.wideChatWidth / 100) * (fullPx - basePx));
-    const maxAllowedPx = Math.max(320, fullPx);
     const style = ensureWideChatStyle();
-    style.textContent = `
-      :root{
-        --wide-chat-target-max-width: ${targetPx}px;
-        --wide-chat-side-margin: ${sideMarginPx}px;
-        --wide-chat-max-allowed: ${maxAllowedPx}px;
-      }
-
-      [class*="px-(--thread-content-margin)"]{
-        --thread-content-margin: var(--wide-chat-side-margin) !important;
-      }
-
-      [class*="max-w-(--thread-content-max-width)"]{
-        --thread-content-max-width: var(--wide-chat-target-max-width) !important;
-        max-width: min(var(--wide-chat-target-max-width), var(--wide-chat-max-allowed)) !important;
-      }
-    `;
+    updateWideChatStyle(style, {
+      basePx,
+      wideChatWidth: CFG.wideChatWidth,
+      windowWidth: window.innerWidth
+    });
   }
 
   function scheduleWideChatUpdate() {
@@ -1368,7 +1352,17 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     wideChatState.baseWidthPx = null;
     wideChatState.resizeHandler = () => scheduleWideChatUpdate();
     window.addEventListener("resize", wideChatState.resizeHandler, { passive: true });
-    wideChatState.observer = new MutationObserver(() => scheduleWideChatUpdate());
+    wideChatState.observer = new MutationObserver((mutations) => {
+      const style = document.getElementById(WIDE_CHAT_STYLE_ID);
+      if (
+        style &&
+        mutations.length > 0 &&
+        mutations.every((mutation) => style.contains(mutation.target))
+      ) {
+        return;
+      }
+      scheduleWideChatUpdate();
+    });
     wideChatState.observer.observe(document.documentElement, { childList: true, subtree: true });
     scheduleWideChatUpdate();
   }
