@@ -597,6 +597,96 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     });
   }
 
+  interface WaitForCodexSubmitReadyResult extends WaitForFinalTextResult {
+    btn: HTMLButtonElement | null;
+  }
+
+  function waitForCodexSubmitReady({ snapshot, timeoutMs, quietMs }: WaitForFinalTextArgs) {
+    return new Promise<WaitForCodexSubmitReadyResult>((resolve) => {
+      const t0 = performance.now();
+
+      const first = readInputText();
+      let lastText = first.text;
+      let lastChangeAt = performance.now();
+      let seenNonEmpty = (first.text || "").trim().length > 0;
+      let stableTextReady = false;
+
+      tmLog("WAIT", "waitForCodexSubmitReady start", {
+        timeoutMs,
+        quietMs,
+        inputFound: first.ok,
+        inputKind: first.kind,
+        snapshotLen: (snapshot || "").length,
+        len: lastText.length,
+        preview: lastText,
+        snapshot: snapshot || ""
+      });
+
+      const tick = () => {
+        const cur = readInputText();
+        const v = cur.text;
+
+        if (v !== lastText) {
+          lastText = v;
+          lastChangeAt = performance.now();
+          tmLog("WAIT", "codex input changed", {
+            inputFound: cur.ok,
+            inputKind: cur.kind,
+            len: v.length,
+            preview: v
+          });
+        }
+
+        if ((v || "").trim().length > 0) seenNonEmpty = true;
+
+        const stableForMs = (performance.now() - lastChangeAt) | 0;
+        const changed = snapshot && snapshot.length > 0 ? v !== snapshot : v.trim().length > 0;
+
+        if (!stableTextReady && changed && stableForMs >= quietMs && v.trim().length > 0) {
+          stableTextReady = true;
+          tmLog("WAIT", "codex text stable", {
+            stableForMs,
+            changed: true,
+            finalLen: v.length,
+            inputFound: cur.ok,
+            inputKind: cur.kind
+          });
+        }
+
+        const btn = findCodexSubmitButton();
+        const btnReady = !!btn && !isDisabled(btn) && isElementVisible(btn);
+
+        if (btnReady) {
+          const allowReady =
+            stableTextReady ||
+            (seenNonEmpty && stableForMs >= quietMs) ||
+            (!cur.ok && seenNonEmpty);
+          if (allowReady) {
+            resolve({ ok: true, text: v, kind: cur.kind, inputOk: cur.ok, btn });
+            return;
+          }
+        }
+
+        if (performance.now() - t0 > timeoutMs) {
+          tmLog("WAIT", "codex submit timeout", {
+            changed,
+            snapshotLen: (snapshot || "").length,
+            finalLen: v.length,
+            inputFound: cur.ok,
+            inputKind: cur.kind,
+            preview: v
+          });
+          resolve({ ok: false, text: v, kind: cur.kind, inputOk: cur.ok, btn });
+          return;
+        }
+
+        setTimeout(tick, 80);
+      };
+
+      tick();
+    });
+  }
+
   function isComposerFocused() {
     const textbox = findTextbox();
     if (!textbox) return false;
@@ -647,6 +737,23 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     return ok;
   }
 
+  function isAttachmentButton(btn: HTMLButtonElement) {
+    const aria = norm(btn.getAttribute("aria-label"));
+    const title = norm(btn.getAttribute("title"));
+    const dt = norm(btn.getAttribute("data-testid"));
+    const txt = norm(btn.textContent);
+    const hay = `${aria} ${title} ${dt} ${txt}`;
+    if (hay.includes("add file")) return true;
+    if (hay.includes("attach")) return true;
+    if (hay.includes("attachment")) return true;
+    if (hay.includes("upload")) return true;
+    if (hay.includes("plus")) return true;
+    if (hay.includes("clip")) return true;
+    if (hay.includes("файл")) return true;
+    if (hay.includes("влож")) return true;
+    return false;
+  }
+
   function findCodexSubmitButton(): HTMLButtonElement | null {
     const textbox = findTextbox();
     const formFromTextbox = textbox?.closest("form");
@@ -658,9 +765,12 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
     const buttons = Array.from(form.querySelectorAll("button")).filter(
       (btn): btn is HTMLButtonElement => btn instanceof HTMLButtonElement
     );
-    const candidates = buttons.filter(
-      (btn) => isElementVisible(btn) && !isSubmitDictationButton(btn)
-    );
+    const candidates = buttons.filter((btn) => {
+      if (!isElementVisible(btn)) return false;
+      if (isSubmitDictationButton(btn)) return false;
+      if (isAttachmentButton(btn)) return false;
+      return true;
+    });
     const preferred = candidates.find((btn) => {
       const aria = norm(btn.getAttribute("aria-label"));
       const title = norm(btn.getAttribute("title"));
@@ -862,29 +972,18 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
           return;
         }
 
-        const finalRes = await waitForFinalText({
+        const submitRes = await waitForCodexSubmitReady({
           snapshot: beforeText,
           timeoutMs: CFG.finalTextTimeoutMs,
           quietMs: CFG.finalTextQuietMs
         });
 
-        if (!finalRes.ok) {
-          tmLog("CODEX", "final text timeout");
+        if (!submitRes.ok || !submitRes.btn) {
+          tmLog("CODEX", "submit not ready");
           return;
         }
 
-        if ((finalRes.text || "").trim().length === 0) {
-          tmLog("CODEX", "final text empty");
-          return;
-        }
-
-        const btn = await waitForAvailableButton(findCodexSubmitButton, 2500, "codex");
-        if (!btn) {
-          tmLog("CODEX", "submit button not found");
-          return;
-        }
-
-        humanClick(btn, "codex submit");
+        humanClick(submitRes.btn, "codex submit");
         tmLog("CODEX", "submit clicked");
         return;
       }
@@ -1283,7 +1382,9 @@ export const startContentScript = ({ storagePort }: ContentScriptDeps = {}) => {
         transition-duration: 0.001ms !important;
       }
     `;
-    document.head.appendChild(st);
+    const host = document.head ?? document.documentElement;
+    if (!host) return;
+    host.appendChild(st);
   }
 
   function removeOneClickDeleteStyle() {
