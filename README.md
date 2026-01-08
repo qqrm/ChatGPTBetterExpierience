@@ -2,6 +2,10 @@
 
 Better experience like in n mobile app
 
+## Extension
+
+Firefox Add-ons: https://addons.mozilla.org/en-US/firefox/addon/chatgpt-better-expierience/
+
 ## How to release
 
 1. Ensure the working tree is clean and checks pass:
